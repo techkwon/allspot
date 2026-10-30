@@ -14,32 +14,75 @@ Everything은 공식 맥 버전이 없어요. 이 앱은 Everything의 코드를
 | 검색 문법 (공백·`|`·`!`·와일드카드·`ext:`·`size:`·`dm:`·`regex:`) | 같은 문법 지원 |
 | 전역 단축키 | ⌥Space (설정에서 바꿀 수 있음) |
 
-## 만들기와 실행
+## 받아서 쓰기
 
-Xcode 없이 명령줄 도구(Swift 6)만으로 빌드돼요.
+완성된 앱 파일을 나눠 주지 않고, 각자 자기 맥에서 소스로 빌드해요.
+자기 맥에서 만든 앱은 인터넷에서 받은 파일로 취급되지 않아서, Apple 개발자 서명 없이도 Gatekeeper에 막히지 않아요.
+
+**필요한 것**
+
+- macOS 14 이상 (macOS 27에서 만들고 확인했어요)
+- Xcode 명령줄 도구(Swift 6). Xcode 앱 전체는 필요 없어요. 없으면 터미널에서 설치해요.
 
 ```bash
-./scripts/build-app.sh
+xcode-select --install
 ```
 
-```bash
-open build/Allspot.app
-```
-
-응용 프로그램 폴더에 설치하고 Claude Code MCP 등록까지 새 위치로 바꾸려면:
+**설치**
 
 ```bash
+git clone https://github.com/techkwon/allspot.git
+cd allspot
 ./scripts/install.sh
 ```
 
-(`./scripts/install.sh ~/Applications`로 다른 곳에, `--no-mcp`로 MCP 등록은 그대로 둘 수 있어요.)
+`install.sh`는 빌드한 뒤 `/Applications/Allspot.app`에 넣고 실행해요.
+Claude Code(`claude` 명령)가 있으면 MCP 서버도 그 위치로 등록해요.
+
+- `./scripts/install.sh ~/Applications`: 다른 곳에 설치
+- `./scripts/install.sh --no-mcp`: MCP 등록은 건드리지 않음
+
+**처음 실행**
+
+- 처음 실행할 때만 디스크 전체를 훑어요(약 400만 개 기준 35~45초).
+- 그다음부터는 저장본을 불러오고(약 0.2초), 꺼져 있던 동안 바뀐 폴더만 다시 읽어요.
+- 문서 내용 색인은 이름 색인이 끝난 뒤 뒤에서 이어서 만들어요(문서 7천여 개 기준 30초~수 분).
+- 메일·사진 보관함처럼 보호된 폴더까지 넣으려면 **시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한**에 Allspot을 추가하고 다시 실행하세요.
+- ⌥Space로 어디서든 검색 창을 불러와요(설정에서 바꿀 수 있어요).
+
+**업데이트**
+
+```bash
+cd allspot
+git pull
+./scripts/install.sh
+```
+
+**지우기**
+
+```bash
+./scripts/uninstall.sh
+```
+
+앱, 색인 저장본(`~/Library/Application Support/Allspot`), 설정, Claude Code MCP 등록을 지워요. 원래 파일은 건드리지 않아요.
+
+**개인정보**
+
+- Allspot은 인터넷으로 아무것도 보내지 않아요. 색인과 설정은 모두 이 맥 안에만 있어요.
+- 문서 내용 색인은 `~/Library/Application Support/Allspot/content.v1.bin`에 문서 글자를 그대로 담아요. 이 맥을 같이 쓰는 사람이 있으면 설정에서 '문서 내용 색인'을 끌 수 있어요.
+- AI 도구(MCP)를 등록하면, 그 AI가 이 맥의 파일 이름과 문서 내용을 볼 수 있게 돼요. 무엇을 숨기는지는 아래 'AI와 함께 쓰기'를 보세요.
+
+## 개발
+
+```bash
+./scripts/build-app.sh                 # build/Allspot.app 만들기
+open build/Allspot.app --args -s "보고서 *.hwp"   # 검색어를 넘겨 실행
+swift build -c release --product allspot-cli
+.build/release/allspot-cli docs        # 문서 읽기·AI 접근 규칙·내용 색인 저장본 확인
+```
+
 `build-app.sh`는 새 앱을 옆에서 다 만든 뒤 한 번에 바꿔 끼워서, 빌드하는 동안에도 돌고 있는 앱과 MCP 서버가 도우미를 잃지 않아요.
-
-처음 실행할 때만 디스크 전체를 훑어요(약 400만 개 기준 35~45초). 그다음부터는 Everything처럼 저장본을 불러오고(약 0.2초) 꺼져 있던 동안 바뀐 폴더만 다시 읽어요.
 색인 설정(⌘,의 '뺄 폴더')을 바꾸거나 '색인 다시 만들기'를 누를 때만 다시 전체를 훑어요.
-메일·사진 보관함처럼 보호된 폴더까지 넣으려면 **시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한**에 Allspot을 추가하고 다시 실행하세요.
-
-실행할 때 검색어를 넘길 수도 있어요: `open build/Allspot.app --args -s "보고서 *.hwp"`
 
 ## 검색 문법
 
@@ -89,7 +132,7 @@ open build/Allspot.app
     - `~/Library` 안에서는 iCloud Drive·Google Drive(CloudStorage)와 앱이 받은 문서(Containers)만 넣어요.
     - 숨김 폴더와 앱 묶음(.app) 안은 빼요.
     - txt·md는 1MB 이하이면서 개발 폴더(`~/Developer`, `node_modules`, `build` 등) 밖의 것만 넣어요.
-  - 이 맥에서는 로컬 문서 7,610개(본문 약 104MB)를 처음에 약 33초에 읽었어요. 그 뒤로는 바뀐 문서만 다시 읽어요.
+  - 개발한 맥에서는 로컬 문서 7,610개(본문 약 104MB)를 처음에 약 33초에 읽었어요. 그 뒤로는 바뀐 문서만 다시 읽어요.
   - 저장본은 `~/Library/Application Support/Allspot/content.v1.bin`이에요.
     - 문서 수가 절반 아래로 줄어드는 저장(클라우드 드라이브가 끊겼을 때 등)이면 이전 저장본을 `content.v1.bin.bak`으로 남겨요.
     - 이름 색인처럼 파일을 그대로 비춰(mmap) 써서 본문이 커져도 앱 메모리는 거의 늘지 않아요(다 읽은 뒤 181MB).
@@ -112,7 +155,7 @@ open build/Allspot.app
 
 - 고정된 단계마다 그때의 결과 수가 보이고, ×로 그 단계만 뺄 수 있어요
 - 빈 검색창에서 ⌫를 누르면 마지막 단계를 검색창으로 다시 꺼내 고칠 수 있어요
-- 실행할 때 `-s`를 여러 번 주면 앞의 것들이 단계가 돼요: `open build/Allspot.app --args -s 보고서 -s 2026`
+- 실행할 때 `-s`를 여러 번 주면 앞의 것들이 단계가 돼요: `open -a Allspot --args -s 보고서 -s 2026`
 
 ## 결과 목록 단축키
 
@@ -156,7 +199,7 @@ open build/Allspot.app
 
 저장본은 메모리로 복사하지 않고 파일을 그대로 비춰 써요(mmap).
 - 바뀌지 않은 부분은 macOS가 필요할 때 디스크에서 다시 읽는 메모리라서 앱 몫으로 세지 않아요.
-- 이 맥(약 420만 개)에서 활성 상태 보기의 메모리가 531MB에서 183MB로 줄었어요.
+- 개발한 맥(약 420만 개)에서 활성 상태 보기의 메모리가 531MB에서 183MB로 줄었어요.
 - 불러오는 시간도 약 150ms에서 12ms로 줄었어요.
 - 1MB 넘는 배열은 malloc 대신 mmap으로 잡아요. 이 맥의 할당기는 크게 잡았다 해제한 malloc 메모리를 프로세스 몫으로 계속 세지만, munmap한 메모리는 바로 돌려줘요.
 
@@ -182,7 +225,7 @@ allspot mcp
 - `allspot mcp`는 MCP 서버예요(표준 입출력, 한 줄에 JSON-RPC 하나).
   - 도구: `search_files`, `read_document_text`, `file_info`, `index_status`
   - 처음 따라잡은 뒤에는 FSEvents로 계속 최신을 유지해요.
-  - Claude Code에 등록하는 명령: `claude mcp add --scope user allspot -- /Applications/Allspot.app/Contents/Helpers/allspot mcp` (앱이 있는 경로에 맞게 바꾸세요. `scripts/install.sh`가 대신 해 줘요)
+  - Claude Code에 등록하는 명령: `claude mcp add --scope user allspot -- /Applications/Allspot.app/Contents/Helpers/allspot mcp` (`scripts/install.sh`가 대신 해 줘요)
 - Claude Code용 스킬 문서: `integrations/claude-skill/allspot/SKILL.md`
 - 지키는 것:
   - 읽기만 해요. 파일을 만들거나 고치거나 지우지 않아요.
@@ -205,14 +248,19 @@ allspot mcp
 
 전체 디스크 접근 권한이 없으면 `~/Library/Containers`, `~/Library/Group Containers`, `~/Library/Daemon Containers`도 건너뛰어요.
 이 폴더를 열면 macOS가 "다른 앱의 데이터에 접근" 허용 창을 띄우는데, 답할 때까지 훑기 전체가 멈추기 때문이에요.
-권한을 준 뒤 다시 실행하면 저장본은 그대로 쓰고 이 폴더만 더 읽어요(이 맥에서 약 6초).
+권한을 준 뒤 다시 실행하면 저장본은 그대로 쓰고 이 폴더만 더 읽어요(개발한 맥에서 약 6초).
 
 ## 아직 없는 것
 
 - 한글 문서 속 수식·차트·글자겹침 글자, hwp 2.x, 암호 걸린 문서 본문, 사진(jpg·png) 속 글자 인식
 - HTTP/ETP 서버, 네트워크 색인
-- Developer ID 서명·공증(지금은 이 맥에서만 쓰는 임시 서명이라, 다른 맥에 주면 Gatekeeper가 막아요)
+- Developer ID 서명·공증한 완성 앱 배포(그래서 지금은 각자 소스로 빌드해요)
 
-## 라이선스 고지
+## 라이선스
 
-한글 3.x 읽기(`Hwp3Text.swift`)는 LibreOffice의 변환 표를 옮겨 와서 그 파일만 MPL-2.0이에요. 자세한 것은 `THIRD_PARTY_NOTICES.md`를 보세요(앱 안 `Contents/Resources`에도 들어가요).
+MIT 라이선스예요(`LICENSE`). 누구나 쓰고, 고치고, 다시 나눠 줄 수 있어요.
+
+- 한글 3.x 읽기(`Hwp3Text.swift`)는 LibreOffice의 변환 표를 옮겨 와서 그 파일만 MPL-2.0이에요. 그 파일을 고쳐 배포하면 고친 소스도 공개해야 해요.
+- 본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+- 자세한 것은 `THIRD_PARTY_NOTICES.md`를 보세요(앱 안 `Contents/Resources`에도 들어가요).
+- Everything은 voidtools의 제품이에요. Allspot은 voidtools와 관계없고, Everything의 코드를 쓰지 않았어요.

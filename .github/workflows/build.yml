@@ -1,0 +1,30 @@
+# 올릴 때마다 빌드하고 자체 시험(문서 읽기·AI 접근 규칙·유사 검색·본문 도우미)을 돌린다.
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Document and policy self-test
+        run: .build/release/allspot-cli docs
+
+      - name: Text helper self-test
+        run: .build/release/allspot-tool self-test
+
+      - name: Fuzzy search self-test
+        run: .build/release/allspot-cli fuzzy "$(mktemp -d)"
+
+      - name: App bundle
+        run: ./scripts/build-app.sh

@@ -1,6 +1,6 @@
 # 제3자 고지
 
-Allspot은 아래 출처의 코드나 자료를 옮겨 쓴다.
+Allspot은 MIT 라이선스로 배포한다(`LICENSE`). 다만 아래 출처의 코드나 자료를 옮겨 쓴 부분은 그 출처의 조건을 따른다.
 
 ## LibreOffice hwpfilter (MPL-2.0)
 
