@@ -26,8 +26,10 @@ enum TextWorker {
     }
 
     /// 서버 쪽: 도우미를 띄워 결과를 받는다. 못 읽었으면 nil, 시간을 넘기면 오류.
-    static func run(path: String, download: Bool) throws -> (text: String, author: String?)? {
-        guard let executable = Bundle.main.executableURL else { throw ToolError("도우미를 찾지 못했습니다") }
+    /// executable·timeout은 확인용(allspot self-test)에서만 바꾼다.
+    static func run(path: String, download: Bool, executable: URL? = nil,
+                    timeout: TimeInterval = TextWorker.timeout) throws -> (text: String, author: String?)? {
+        guard let executable = executable ?? Bundle.main.executableURL else { throw ToolError("도우미를 찾지 못했습니다") }
         let process = Process()
         process.executableURL = executable
         // "--" 뒤는 낱말로만 읽으므로 --download를 경로 앞에 둔다.
@@ -64,5 +66,53 @@ enum TextWorker {
         private var flag = false
         var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
         func set() { lock.lock(); flag = true; lock.unlock() }
+    }
+}
+
+/// 본문 도우미가 멈추거나 엉뚱한 것을 내보낼 때 서버가 버티는지 확인한다(allspot self-test).
+enum TextWorkerSelfTest {
+    static func run() -> Bool {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("allspot-selftest-\(getpid())")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func script(_ name: String, _ body: String) -> URL {
+            let url = dir.appendingPathComponent(name)
+            try? ("#!/bin/sh\n" + body + "\n").write(to: url, atomically: true, encoding: .utf8)
+            chmod(url.path, 0o755)
+            return url
+        }
+        var ok = true
+        func check(_ passed: Bool, _ label: String) {
+            print("  \(passed ? "✓" : "✗") \(label)")
+            if !passed { ok = false }
+        }
+
+        let started = Date()
+        do {
+            _ = try TextWorker.run(path: "/x", download: false, executable: script("slow", "sleep 30"), timeout: 1)
+            check(false, "오래 걸리는 도우미를 끊음")
+        } catch {
+            let elapsed = Date().timeIntervalSince(started)
+            check("\(error)".contains("넘겨") && elapsed < 5, "오래 걸리는 도우미를 끊음(\(String(format: "%.1f", elapsed))초)")
+        }
+        do {
+            _ = try TextWorker.run(path: "/x", download: false, executable: script("garbage", "echo not-json"))
+            check(false, "엉뚱한 출력은 오류")
+        } catch {
+            check("\(error)".contains("멈췄"), "엉뚱한 출력은 오류")
+        }
+        do {
+            _ = try TextWorker.run(path: "/x", download: false, executable: script("crash", "kill -9 $$"))
+            check(false, "죽은 도우미는 오류")
+        } catch {
+            check("\(error)".contains("멈췄"), "죽은 도우미는 오류")
+        }
+        let refused = try? TextWorker.run(path: "/x", download: false,
+                                          executable: script("refused", "echo '{\"ok\":false,\"refused\":true}'"))
+        check(refused == nil, "거절·못 읽음은 nil")
+        let fine = try? TextWorker.run(path: "/x", download: false,
+                                       executable: script("fine", "echo '{\"ok\":true,\"text\":\"안녕\",\"author\":\"홍\"}'"))
+        check(fine?.text == "안녕" && fine?.author == "홍", "정상 출력은 본문·작성자")
+        return ok
     }
 }

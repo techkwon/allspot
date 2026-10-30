@@ -59,7 +59,7 @@ public final class ContentIndex: @unchecked Sendable {
 
     var allPaths: [String] { lock.read { Array(slots.keys) } }
 
-    func set(_ path: String, size: Int64, mtime: Int64, text body: [UInt8], author: [UInt8]) {
+    public func set(_ path: String, size: Int64, mtime: Int64, text body: [UInt8], author: [UInt8]) {
         lock.write {
             let document = Document(size: size, mtime: mtime, textStart: mappedLength + extra.count, textLength: body.count, author: author)
             extra.append(contentsOf: body)
@@ -143,7 +143,7 @@ public final class ContentIndex: @unchecked Sendable {
     private static let headerBytes = 40
 
     /// 남은 문서만 모아 한 파일로 쓰고(임시 파일에 쓰고 이름을 바꿈), 그동안 바뀐 것이 없으면 새 파일을 비춰 쓴다.
-    func save(to url: URL) throws {
+    public func save(to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let temporary = url.appendingPathExtension("tmp")
         let (saved, layout): (UInt64, [(slot: Int, start: Int)]) = try lock.read {

@@ -20,10 +20,8 @@ public struct AIAccessPolicy: Sendable {
     /// ~/Library 안에서 AI에게 보이는 곳
     static let visibleLibraryPaths = ["~/Library/Mobile Documents", "~/Library/CloudStorage", "~/Library/Containers/*/Data/Documents"]
 
-    /// 설정에서 고칠 수 있는 기본 목록(개인 대화·메일)
-    public static let defaultExcludedPaths = [
-        "~/Library/Messages", "~/Library/Mail", "~/Library/Containers/com.kakao.KakaoTalkMac",
-    ]
+    /// 설정에서 고칠 수 있는 기본 목록(비어 있음: 개인 대화·메일이 든 ~/Library는 고정 규칙으로 이미 숨는다)
+    public static let defaultExcludedPaths: [String] = []
 
     /// 내용을 읽어 주지 않는 파일 이름(소문자로 비교)
     static let secretNames: Set<String> = [
@@ -42,35 +40,69 @@ public struct AIAccessPolicy: Sendable {
     /// 사용자 목록(설정에 보이는 것). 실제 판정에는 고정 규칙이 함께 쓰인다.
     public let excludedPaths: [String]
     private let rules: [Rule]
-    private let library: String
+    private let library: [UInt8]
     private let libraryRules: [Rule]
+
+    // 검색 결과 수만 개마다 부르므로 문자열 대신 바이트로 비교한다. 대소문자는 ASCII만 접는다
+    // (실제 파일 경로는 커널이 아는 대소문자로 맞춘 뒤에 오고, 한글에는 대소문자가 없다).
 
     /// prefix: 첫 `*` 앞까지(소문자). pattern이 있으면 prefix가 맞은 뒤 fnmatch로 한 번 더 본다.
     private struct Rule: Sendable {
-        let prefix: String
-        let pattern: String?
+        let prefix: [UInt8]
+        let pattern: [CChar]?
+        let patternInside: [CChar]?
+        /// 패턴 안의 가장 긴 글자 조각. 이것이 없는 경로는 fnmatch 없이 바로 거른다.
+        let needle: [UInt8]
     }
 
     public init(excludedPaths: [String]) {
         self.excludedPaths = excludedPaths.compactMap(Self.normalize)
         rules = (Self.builtInExcludedPaths.compactMap(Self.normalize) + self.excludedPaths).map(Self.rule)
-        library = (NSHomeDirectory() + "/Library").lowercased()
+        library = Self.lowerBytes(NSHomeDirectory() + "/Library/")
         libraryRules = Self.visibleLibraryPaths.compactMap(Self.normalize).map(Self.rule)
     }
 
-    private static func rule(_ entry: String) -> Rule {
-        let lower = entry.lowercased()
-        guard let star = lower.firstIndex(of: "*") else { return Rule(prefix: lower, pattern: nil) }
-        return Rule(prefix: String(lower[..<star]), pattern: lower)
+    static func lowerBytes<S: Sequence>(_ bytes: S) -> [UInt8] where S.Element == UInt8 {
+        bytes.map { $0 >= 65 && $0 <= 90 ? $0 | 0x20 : $0 }
     }
 
-    /// path(소문자)가 규칙의 위치이거나 그 안인지
-    private static func matches(_ rule: Rule, _ lower: String) -> Bool {
-        guard lower.hasPrefix(rule.prefix) else { return false }
-        guard let pattern = rule.pattern else {
-            return lower.count == rule.prefix.count || lower.dropFirst(rule.prefix.count).first == "/"
+    static func lowerBytes(_ text: String) -> [UInt8] { lowerBytes(text.utf8) }
+
+    private static func cString(_ bytes: [UInt8]) -> [CChar] { bytes.map { CChar(bitPattern: $0) } + [0] }
+
+    private static func rule(_ entry: String) -> Rule {
+        let lower = lowerBytes(entry)
+        guard let star = lower.firstIndex(of: UInt8(ascii: "*")) else {
+            return Rule(prefix: lower, pattern: nil, patternInside: nil, needle: [])
         }
-        return fnmatch(pattern, lower, 0) == 0 || fnmatch(pattern + "/*", lower, 0) == 0
+        let needle = lower.split(separator: UInt8(ascii: "*")).max { $0.count < $1.count }.map(Array.init) ?? []
+        return Rule(prefix: Array(lower[..<star]), pattern: cString(lower),
+                    patternInside: cString(lower + Array("/*".utf8)), needle: needle)
+    }
+
+    private static func hasPrefix(_ bytes: [UInt8], _ prefix: [UInt8]) -> Bool {
+        guard bytes.count >= prefix.count else { return false }
+        if prefix.isEmpty { return true }
+        return bytes.withUnsafeBytes { b in prefix.withUnsafeBytes { memcmp(b.baseAddress!, $0.baseAddress!, prefix.count) == 0 } }
+    }
+
+    private static func contains(_ bytes: [UInt8], _ needle: [UInt8]) -> Bool {
+        guard !needle.isEmpty else { return true }
+        guard bytes.count >= needle.count else { return false }
+        return bytes.withUnsafeBytes { b in
+            needle.withUnsafeBytes { memmem(b.baseAddress!, b.count, $0.baseAddress!, $0.count) != nil }
+        }
+    }
+
+    /// path(소문자 바이트)가 규칙의 위치이거나 그 안인지
+    private static func matches(_ rule: Rule, _ lower: [UInt8]) -> Bool {
+        guard hasPrefix(lower, rule.prefix) else { return false }
+        guard let pattern = rule.pattern, let inside = rule.patternInside else {
+            return lower.count == rule.prefix.count || lower[rule.prefix.count] == UInt8(ascii: "/")
+        }
+        guard contains(lower, rule.needle) else { return false }
+        let path = cString(lower)
+        return fnmatch(pattern, path, 0) == 0 || fnmatch(inside, path, 0) == 0
     }
 
     /// ~를 풀고, 끝의 /를 떼고, 같은 곳을 가리키는 다른 이름(/System/Volumes/Data, 심볼릭 링크)을 하나로 맞춘다.
@@ -86,11 +118,12 @@ public struct AIAccessPolicy: Sendable {
         return stripDataVolume(p)
     }
 
+    private static let dataVolume = lowerBytes("/System/Volumes/Data/")
+
     /// /System/Volumes/Data/Users/… → /Users/…
     public static func stripDataVolume(_ path: String) -> String {
-        let data = "/System/Volumes/Data"
-        guard path.count > data.count, path.lowercased().hasPrefix(data.lowercased() + "/") else { return path }
-        return String(path.dropFirst(data.count))
+        guard hasPrefix(lowerBytes(path.utf8.prefix(dataVolume.count)), dataVolume) else { return path }
+        return String(path.dropFirst(dataVolume.count - 1))
     }
 
     /// 앱 설정(UserDefaults)에 저장된 목록, 없으면 기본 목록
@@ -101,21 +134,32 @@ public struct AIAccessPolicy: Sendable {
 
     /// 경로를 AI에게 보여도 되는지(빼는 위치 안이 아닌지). path는 정규화된 절대 경로여야 한다.
     public func allows(_ path: String) -> Bool {
-        let lower = Self.stripDataVolume(path).lowercased()
-        if lower.hasPrefix(library + "/") && !libraryRules.contains(where: { Self.matches($0, lower) }) { return false }
+        var lower = Self.lowerBytes(path)
+        if Self.hasPrefix(lower, Self.dataVolume) { lower.removeFirst(Self.dataVolume.count - 1) }
+        if Self.hasPrefix(lower, library) && !libraryRules.contains(where: { Self.matches($0, lower) }) { return false }
         return !rules.contains { Self.matches($0, lower) }
     }
 
+    private static let secretNameBytes = Set(secretNames.map { lowerBytes($0) })
+    private static let secretExtensionBytes = Set(secretExtensions.map { lowerBytes($0) })
+    private static let documentExtensionBytes = Set(documentExtensions.map { lowerBytes($0) })
+    private static let secretWordBytes = secretWords.map { lowerBytes($0) }
+    private static let secretSuffixes = ["auth.json", "token.json", "tokens.json"].map { lowerBytes($0) }
+    private static let secretPrefixes = [".env.", "id_rsa"].map { lowerBytes($0) }
+
     /// 비밀 정보가 들었을 만한 파일인지(.env, id_rsa, *.pem 같은 것)
     public static func isSecret(_ path: String) -> Bool {
-        let name = (path as NSString).lastPathComponent.lowercased()
-        if secretNames.contains(name) || name.hasPrefix(".env.") || name.hasPrefix("id_rsa") { return true }
-        let ext = (name as NSString).pathExtension
-        if secretExtensions.contains(ext) { return true }
+        let utf8 = path.utf8
+        let start = utf8.lastIndex(of: UInt8(ascii: "/")).map { utf8.index(after: $0) } ?? utf8.startIndex
+        let name = lowerBytes(utf8[start...])
+        if secretNameBytes.contains(name) || secretPrefixes.contains(where: { hasPrefix(name, $0) }) { return true }
+        // 확장자: 이름 첫 글자가 아닌 마지막 점 뒤(.env 같은 숨김 파일 이름 자체는 확장자가 아니다)
+        let ext = name.lastIndex(of: UInt8(ascii: ".")).flatMap { $0 > 0 ? Array(name[(name.index(after: $0))...]) : nil } ?? []
+        if secretExtensionBytes.contains(ext) { return true }
         // mcp-auth.json, oauth-token.json, aws_credentials, passwords.txt 같은 변형.
         // 사람이 쓰는 문서(한글·워드·PDF 등)는 이름만 보고 막지 않는다. 글자 파일(txt·md)은 막는다.
-        if documentExtensions.contains(ext) { return false }
-        if name.hasSuffix("auth.json") || name.hasSuffix("token.json") || name.hasSuffix("tokens.json") { return true }
-        return secretWords.contains { name.contains($0) }
+        if documentExtensionBytes.contains(ext) { return false }
+        if secretSuffixes.contains(where: { name.count >= $0.count && Array(name.suffix($0.count)) == $0 }) { return true }
+        return secretWordBytes.contains { contains(name, $0) }
     }
 }

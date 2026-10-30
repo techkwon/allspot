@@ -191,6 +191,25 @@ func docsTest() {
     check(AIAccessPolicy(excludedPaths: []).allows(h + "/Documents/a.pdf") && !policy.allows(h + "/Library/Keychains/k"),
           "사용자 목록을 비워도 고정 규칙은 남음")
 
+    print("내용 색인 저장본")
+    let store = base.appendingPathComponent("content.bin")
+    let backup = store.appendingPathExtension("bak")
+    func saveIndex(_ count: Int) -> Bool {
+        let index = ContentIndex()
+        for i in 0..<count { index.set("/Users/x/d\(i).pdf", size: 1, mtime: 1, text: Array("본문 \(i)".utf8), author: []) }
+        return (try? index.save(to: store)) != nil
+    }
+    func loadCount(_ url: URL) -> Int? {
+        let index = ContentIndex()
+        return index.load(from: url) ? index.count : nil
+    }
+    check(saveIndex(1_200) && loadCount(store) == 1_200, "저장·불러오기 1,200개")
+    check(saveIndex(1_100) && !FileManager.default.fileExists(atPath: backup.path), "조금 줄면 백업 없음")
+    check(saveIndex(100) && loadCount(store) == 100 && loadCount(backup) == 1_100, "절반 넘게 줄면 이전 것을 .bak으로 남김")
+    check(saveIndex(10) && loadCount(backup) == 1_100, "작은 저장본끼리는 백업을 덮지 않음")
+    let reloaded = ContentIndex()
+    check(reloaded.load(from: backup) && reloaded.search(Array("본문 7".utf8)).contains("/Users/x/d7.pdf"), "백업에서 검색됨")
+
     print("내용 색인 후보 규칙")
     let home = "/Users/x"
     let cases: [(String, Int64, Bool)] = [

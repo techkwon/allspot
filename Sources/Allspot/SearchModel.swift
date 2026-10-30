@@ -12,6 +12,15 @@ struct Refinement: Identifiable, Equatable {
     let count: Int
 }
 
+/// 즐겨찾기한 검색: 결과 내 검색 단계까지 그대로 다시 연다.
+struct Bookmark: Codable, Hashable, Identifiable {
+    /// 앞 단계부터 마지막 검색어까지
+    var stages: [String]
+    var fuzzy: Bool
+    var id: [String] { stages }
+    var title: String { stages.joined(separator: " › ") + (fuzzy ? "  (유사)" : "") }
+}
+
 @MainActor
 final class SearchModel: ObservableObject {
     static let excludedPathsKey = "excludedPaths"
@@ -19,6 +28,7 @@ final class SearchModel: ObservableObject {
     static let indexContentsKey = "indexDocumentContents"
     static let includeCloudKey = "includeCloudDocuments"
     static let recentQueriesKey = "recentQueries"
+    static let bookmarksKey = "bookmarks"
 
     let controller: IndexController
     /// 문서 내용 색인(hwp·hwpx·pdf·docx·pptx·xlsx·txt·md)
@@ -59,6 +69,11 @@ final class SearchModel: ObservableObject {
     /// 최근 검색어(새 것이 앞). 결과가 있는 검색어를 잠시 그대로 두면 남긴다.
     @Published private(set) var recentQueries = UserDefaults.standard.stringArray(forKey: SearchModel.recentQueriesKey) ?? []
     private var recordRecent: DispatchWorkItem?
+    /// 즐겨찾기한 검색(추가한 순서)
+    @Published private(set) var bookmarks: [Bookmark] = {
+        guard let data = UserDefaults.standard.data(forKey: SearchModel.bookmarksKey) else { return [] }
+        return (try? JSONDecoder().decode([Bookmark].self, from: data)) ?? []
+    }()
     @Published private(set) var resultCount = 0
     @Published private(set) var resultsVersion = 0
     @Published private(set) var indexStatus: IndexStatus = .starting
@@ -283,6 +298,40 @@ final class SearchModel: ObservableObject {
         recentQueries.insert(trimmed, at: 0)
         if recentQueries.count > 20 { recentQueries.removeLast(recentQueries.count - 20) }
         UserDefaults.standard.set(recentQueries, forKey: Self.recentQueriesKey)
+    }
+
+    // MARK: - 즐겨찾기
+
+    /// 지금 화면의 검색(결과 내 검색 단계 포함). 비었으면 nil.
+    var currentBookmark: Bookmark? {
+        let stages = refinements.map(\.text) + [query.trimmingCharacters(in: .whitespaces)]
+        let kept = stages.filter { !$0.isEmpty }
+        return kept.isEmpty ? nil : Bookmark(stages: kept, fuzzy: fuzzyMode)
+    }
+
+    var isCurrentBookmarked: Bool { currentBookmark.map(bookmarks.contains) ?? false }
+
+    /// 지금 검색을 즐겨찾기에 넣거나, 이미 있으면 뺀다.
+    func toggleCurrentBookmark() {
+        guard let current = currentBookmark else { return }
+        if let i = bookmarks.firstIndex(of: current) { bookmarks.remove(at: i) } else { bookmarks.append(current) }
+        saveBookmarks()
+    }
+
+    func removeBookmark(_ bookmark: Bookmark) {
+        bookmarks.removeAll { $0 == bookmark }
+        saveBookmarks()
+    }
+
+    func openBookmark(_ bookmark: Bookmark) {
+        guard let last = bookmark.stages.last else { return }
+        if fuzzyMode != bookmark.fuzzy { fuzzyMode = bookmark.fuzzy }
+        refinements = bookmark.stages.dropLast().map { Refinement(text: $0, fuzzy: bookmark.fuzzy, count: 0) }
+        if query == last { runSearch() } else { query = last }
+    }
+
+    private func saveBookmarks() {
+        if let data = try? JSONEncoder().encode(bookmarks) { UserDefaults.standard.set(data, forKey: Self.bookmarksKey) }
     }
 
     func clearRecentQueries() {

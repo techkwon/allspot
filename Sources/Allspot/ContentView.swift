@@ -29,6 +29,29 @@ struct ContentView: View {
                 .toggleStyle(.button)
                 .help("유사 검색: 오타·빠진 글자·초성(ㅂㄱㅅ)도 찾고 비슷한 순으로 보여 줘요 (⌘U)")
                 Menu {
+                    Button(model.isCurrentBookmarked ? "지금 검색을 즐겨찾기에서 빼기" : "지금 검색을 즐겨찾기에 넣기") {
+                        model.toggleCurrentBookmark()
+                    }
+                    .disabled(model.currentBookmark == nil)
+                    if !model.bookmarks.isEmpty {
+                        Divider()
+                        ForEach(model.bookmarks) { bookmark in
+                            Button(bookmark.title) { model.openBookmark(bookmark) }
+                        }
+                        Divider()
+                        Menu("즐겨찾기 지우기") {
+                            ForEach(model.bookmarks) { bookmark in
+                                Button(bookmark.title) { model.removeBookmark(bookmark) }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: model.isCurrentBookmarked ? "star.fill" : "star")
+                }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("즐겨찾기한 검색 (⌘D 넣기·빼기, ⌘1~9 열기)")
+                Menu {
                     if model.recentQueries.isEmpty {
                         Text("아직 없어요")
                     }

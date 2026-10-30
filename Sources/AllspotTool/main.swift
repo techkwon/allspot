@@ -94,6 +94,12 @@ do {
         // 본문 읽기 도우미(사람이 쓰는 명령이 아님). 경로는 이미 검사된 것이다.
         guard let path = args.words.first else { fail("경로가 없습니다", code: 2) }
         TextWorker.serve(path: path, download: args.flags.contains("download"))
+    case "self-test":
+        // 개발용: 본문 도우미의 시간 제한·실패 처리
+        print("본문 도우미")
+        let ok = TextWorkerSelfTest.run()
+        print(ok ? "도우미 확인: 모두 통과" : "도우미 확인: 실패 있음")
+        exit(ok ? 0 : 1)
     case "help", "--help", "-h":
         print(usage)
     default:

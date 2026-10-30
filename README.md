@@ -33,6 +33,7 @@ open build/Allspot.app
 ```
 
 (`./scripts/install.sh ~/Applications`로 다른 곳에, `--no-mcp`로 MCP 등록은 그대로 둘 수 있어요.)
+`build-app.sh`는 새 앱을 옆에서 다 만든 뒤 한 번에 바꿔 끼워서, 빌드하는 동안에도 돌고 있는 앱과 MCP 서버가 도우미를 잃지 않아요.
 
 처음 실행할 때만 디스크 전체를 훑어요(약 400만 개 기준 35~45초). 그다음부터는 Everything처럼 저장본을 불러오고(약 0.2초) 꺼져 있던 동안 바뀐 폴더만 다시 읽어요.
 색인 설정(⌘,의 '뺄 폴더')을 바꾸거나 '색인 다시 만들기'를 누를 때만 다시 전체를 훑어요.
@@ -90,6 +91,7 @@ open build/Allspot.app
     - txt·md는 1MB 이하이면서 개발 폴더(`~/Developer`, `node_modules`, `build` 등) 밖의 것만 넣어요.
   - 이 맥에서는 로컬 문서 7,610개(본문 약 104MB)를 처음에 약 33초에 읽었어요. 그 뒤로는 바뀐 문서만 다시 읽어요.
   - 저장본은 `~/Library/Application Support/Allspot/content.v1.bin`이에요.
+    - 문서 수가 절반 아래로 줄어드는 저장(클라우드 드라이브가 끊겼을 때 등)이면 이전 저장본을 `content.v1.bin.bak`으로 남겨요.
     - 이름 색인처럼 파일을 그대로 비춰(mmap) 써서 본문이 커져도 앱 메모리는 거의 늘지 않아요(다 읽은 뒤 181MB).
   - 문서는 앱 안의 도우미(`Helpers/allspot index-worker`)가 16개씩 맡아 읽고 끝나요.
     - 큰 PDF 하나를 읽는 데 수백 MB가 드는데, 그 메모리는 도우미가 끝날 때 바로 돌아가요.
@@ -119,6 +121,7 @@ open build/Allspot.app
 
 - 폴더의 크기 칸에는 안에 든 파일 크기의 합이 보여요(보이는 줄만 뒤에서 셈해요).
 - 검색창 옆 시계 단추에 최근 검색어 20개가 남아요. 골라서 다시 찾거나 기록을 지울 수 있어요.
+- 즐겨찾기: ⌘D(또는 별 단추)로 지금 검색을 결과 내 검색 단계까지 통째로 넣고 빼요. '즐겨찾기' 메뉴에서 고르거나 ⌘1~9로 다시 열어요.
 
 ## 구조
 
@@ -145,7 +148,9 @@ open build/Allspot.app
   - `allspot-cli list <검색어>`: 실제 색인에서 찾은 전체 경로 찍기
   - `allspot-cli content [검색어...]`: 문서 내용 색인을 임시로 만들고 `content:`·`tag:` 등 시험
   - `allspot-cli worker <allspot-tool 경로> <문서...>`: 문서 읽기 도우미가 죽거나 엉뚱한 것을 내보내도 버티는지 확인
-  - `allspot-cli docs`: 시험용 문서(docx·pptx·xlsx·hwpx·PDF·스캔본 PDF·여러 인코딩 글자 파일·망가진 파일)를 만들어 본문 읽기와 AI 접근 규칙·내용 색인 범위를 한꺼번에 확인
+  - `allspot-cli docs`: 내용 색인 저장본(줄어들 때 .bak 남기기 포함)과 시험용 문서(docx·pptx·xlsx·hwpx·PDF·스캔본 PDF·여러 인코딩 글자 파일·망가진 파일)를 만들어 본문 읽기와 AI 접근 규칙·내용 색인 범위를 한꺼번에 확인
+
+  - `Helpers/allspot self-test`: 본문 도우미가 멈추거나(시간 제한) 죽거나 엉뚱한 것을 내보낼 때 서버가 버티는지 확인
 
 색인 저장본 위치: `~/Library/Application Support/Allspot/index.v2.bin` (파일 이름은 그대로지만 안의 형식은 3)
 
@@ -184,7 +189,7 @@ allspot mcp
   - 클라우드에만 있는 파일은 `--download`(MCP는 `allow_download`)를 줄 때만 읽어요. 읽으면 내려받게 돼요.
   - 늘 숨기는 곳(설정에서 끌 수 없음): 홈의 숨김 폴더·파일(`~/.ssh`, `~/.config`, `~/.codex`, `~/.claude.json` 등), 저장소의 `.git` 폴더, `~/Library` 전체.
     - `~/Library` 안에서는 iCloud Drive(Mobile Documents), 클라우드 드라이브(CloudStorage), 앱 컨테이너의 Documents만 보여요.
-  - 설정의 'AI 도구에서 더 숨길 폴더'도 함께 숨겨요. `*`를 쓸 수 있고 대소문자는 가리지 않아요.
+  - 설정의 'AI 도구에서 더 숨길 폴더'(기본은 비어 있음)도 함께 숨겨요. `*`를 쓸 수 있고 대소문자는 가리지 않아요.
   - `.env`, `id_rsa`, `*.pem`·`*.key`, `auth.json`, `settings.local.json`, 이름에 credential·secret·password가 든 글자 파일, 브라우저의 `Login Data` 같은 비밀 파일은 어디에 있든 검색 결과에서 숨기고 읽지 않아요(한글·워드·PDF 같은 문서는 이름만 보고 막지 않아요).
   - 숨긴 항목은 결과 개수에도 넣지 않아요. 그래서 `content:` 검색으로 숨긴 문서의 내용을 떠볼 수 없어요.
   - 경로는 파일을 열어 커널이 아는 실제 위치로 판정해요. `/System/Volumes/Data/…`, `/.vol/…`, 대소문자 바꾸기, 심볼릭 링크로 규칙을 비켜 갈 수 없어요.
@@ -205,7 +210,6 @@ allspot mcp
 ## 아직 없는 것
 
 - 한글 문서 속 수식·차트·글자겹침 글자, hwp 2.x, 암호 걸린 문서 본문, 사진(jpg·png) 속 글자 인식
-- 북마크
 - HTTP/ETP 서버, 네트워크 색인
 - Developer ID 서명·공증(지금은 이 맥에서만 쓰는 임시 서명이라, 다른 맥에 주면 Gatekeeper가 막아요)
 

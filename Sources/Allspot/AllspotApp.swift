@@ -28,10 +28,37 @@ struct AllspotApp: App {
                 Divider()
                 Button("색인 다시 만들기") { appDelegate.model.rebuildIndex() }
             }
+            BookmarkCommands(model: appDelegate.model)
         }
 
         MenuBarExtra("Allspot", systemImage: "magnifyingglass") {
             MenuBarContent(model: appDelegate.model) { appDelegate.showWindow() }
+        }
+    }
+}
+
+/// 즐겨찾기 메뉴(앞의 9개는 ⌘1~9). 메뉴 막대는 Commands가 직접 모델을 지켜봐야 목록이 바뀐다.
+struct BookmarkCommands: Commands {
+    @ObservedObject var model: SearchModel
+
+    var body: some Commands {
+        CommandMenu("즐겨찾기") {
+            Button(model.isCurrentBookmarked ? "지금 검색을 즐겨찾기에서 빼기" : "지금 검색을 즐겨찾기에 넣기") {
+                model.toggleCurrentBookmark()
+            }
+            .keyboardShortcut("d")
+            .disabled(model.currentBookmark == nil)
+            if !model.bookmarks.isEmpty {
+                Divider()
+                ForEach(Array(model.bookmarks.enumerated()), id: \.element.id) { i, bookmark in
+                    if i < 9 {
+                        Button(bookmark.title) { model.openBookmark(bookmark) }
+                            .keyboardShortcut(KeyEquivalent(Character(String(i + 1))))
+                    } else {
+                        Button(bookmark.title) { model.openBookmark(bookmark) }
+                    }
+                }
+            }
         }
     }
 }
